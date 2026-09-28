@@ -1,0 +1,2 @@
+'use client';
+export default function ErrorBoundary({reset}:{error:Error&{digest?:string};reset:()=>void}){return <main className="auth-page"><div className="auth-card"><div className="brand-mark">b.</div><h1>No pudimos cargar esta pantalla</h1><p>Intenta nuevamente. Las operaciones guardadas localmente no se borran al recargar.</p><button className="primary" onClick={reset}>Volver a intentar</button><a href="/">Ir al inicio</a></div></main>;}
