@@ -12,3 +12,4 @@ playwright-report/
 .supabase/
 backups/
 .cache/
+.pnpm-store/

@@ -20,7 +20,7 @@ pnpm build
 pnpm start
 ```
 
-El comando de construcción también prepara todos los archivos estáticos de la PWA y el servidor independiente. Usar HTTPS en producción; localhost permite las pruebas locales. En Windows, mantener Turbopack: Webpack no admite el carácter `!` de la ruta actual del proyecto.
+El comando de construcción también prepara todos los archivos estáticos de la PWA. Docker activa adicionalmente el servidor independiente con `NEXT_STANDALONE=1`. Usar HTTPS en producción; localhost permite las pruebas locales. En Windows, mantener Turbopack: Webpack no admite el carácter `!` de la ruta actual del proyecto.
 
 ## Conectar Supabase
 
@@ -89,7 +89,7 @@ pnpm test:e2e
 
 Las pruebas de SQL ejecutan las migraciones en PostgreSQL mediante PGlite, con sustitutos locales mínimos de Auth y Storage. Cubren RLS, funciones transaccionales, reintentos, conflictos, caja, inventario y permisos. **No reemplazan la integración con Supabase remoto.**
 
-Los escenarios de navegador usan Chrome de escritorio, emulación de Android y WebKit con perfil iPhone. Verifican orden, cobro dividido, PDF, equipo, inventario, CSV y recarga offline. Es necesario probar impresoras físicas de 58/80 mm y Safari en un iPhone real durante el piloto.
+Los escenarios de navegador usan Chrome de escritorio, emulación de Android y WebKit con perfil iPhone. Verifican orden, cobro dividido, PDF, equipo, inventario, CSV y captura offline. La recarga offline se prueba en Chrome; se omite explícitamente en WebKit por [un fallo conocido de su emulación](https://github.com/microsoft/playwright/issues/42775). Es necesario probar impresoras físicas de 58/80 mm y Safari en un iPhone real durante el piloto.
 
 ## Operación y despliegue
 

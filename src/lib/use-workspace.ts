@@ -9,23 +9,31 @@ import { prepareOffline } from './prepare-offline';
 
 export function useWorkspace(){
  const [snapshot,setSnapshot]=useState<Snapshot>(emptySnapshot),[ready,setReady]=useState(false),[demo,setDemo]=useState(false),[device,setDevice]=useState(''),[branchId,setBranchId]=useState(''),[online,setOnline]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[operations,setOperations]=useState<Operation[]>([]),[lastSync,setLastSync]=useState(0);
- const syncing=useRef(false);const stateRef=useRef({snapshot,demo,branchId});stateRef.current={snapshot,demo,branchId};
- async function hydrate(s:Snapshot){const orders=await localOrders(s.userId,s.branches);setSnapshot({...s,orders});setBranchId(current=>s.branches.some(b=>b.id===current)?current:s.branches[0]?.id??'');await loadOperations(s);}
- async function loadOperations(s=stateRef.current.snapshot){const all=await local.operations.toArray();const merged=new Map((s.conflicts??[]).map(o=>[o.id,o]));for(const o of all.filter(o=>o.scope.startsWith(`${s.userId}:`)))merged.set(o.id,o);setOperations([...merged.values()]);}
- async function refresh(){if(stateRef.current.demo)return;const s=await fetchSnapshot();await local.meta.put({key:'last-authenticated-user',value:s.userId});await hydrate(s);setLastSync(Date.now());}
+ const syncing=useRef(false);const sessionEpoch=useRef(0);const stateRef=useRef({snapshot,demo,branchId});stateRef.current={snapshot,demo,branchId};
+ async function hydrate(s:Snapshot){const epoch=sessionEpoch.current;const orders=await localOrders(s.userId,s.branches);if(epoch!==sessionEpoch.current)return;setSnapshot({...s,orders});setBranchId(current=>s.branches.some(b=>b.id===current)?current:s.branches[0]?.id??'');await loadOperations(s);}
+ async function loadOperations(s=stateRef.current.snapshot){const epoch=sessionEpoch.current;const all=await local.operations.toArray();if(epoch!==sessionEpoch.current)return;const merged=new Map((s.conflicts??[]).map(o=>[o.id,o]));for(const o of all.filter(o=>o.scope.startsWith(`${s.userId}:`)))merged.set(o.id,o);setOperations([...merged.values()]);}
+ async function refresh(){if(stateRef.current.demo)return;const epoch=sessionEpoch.current;const s=await fetchSnapshot();if(epoch!==sessionEpoch.current)return;await local.meta.put({key:'last-authenticated-user',value:s.userId});if(epoch!==sessionEpoch.current)return;await hydrate(s);setLastSync(Date.now());}
+ async function currentSession(){
+  const sessionRequest=supabase().auth.getSession();
+  const timeout=new Promise<never>((_,reject)=>window.setTimeout(()=>reject(new Error('No fue posible conectar con Supabase. Revisa tu conexión e inténtalo de nuevo.')),8000));
+  const {data:{session},error}=await Promise.race([sessionRequest,timeout]);
+  if(error)throw error;
+  return session;
+ }
  async function load(){setBusy(true);try{
   if(!configured()){setReady(true);return;}
   if(!navigator.onLine){const last=await local.meta.get('last-authenticated-user');if(last){const cached=await readSnapshot(String(last.value));if(cached)await hydrate(cached);}return;}
-  const {data:{session}}=await supabase().auth.getSession();
+  const session=await currentSession();
   if(session){const cached=await readSnapshot(session.user.id);if(cached)await hydrate(cached);if(navigator.onLine)await refresh();}
  }catch(e){setNotice(e instanceof Error?e.message:'No se pudo cargar el negocio');}finally{setBusy(false);setReady(true);}}
  useEffect(()=>{void deviceId().then(setDevice);void load();setOnline(navigator.onLine);const change=()=>setOnline(navigator.onLine);window.addEventListener('online',change);window.addEventListener('offline',change);void prepareOffline().catch(e=>setNotice(e.message));return()=>{window.removeEventListener('online',change);window.removeEventListener('offline',change);};},[]);
- async function startDemo(){setBusy(true);try{setDemo(true);let s=await readSnapshot(DEMO_USER);if(!s){s=demoSnapshot();const d=await deviceId();s.cash=s.cash.map(c=>({...c,device_id:d}));await mergeRemote(s);}await hydrate(s);}finally{setBusy(false);}}
- async function sync(){if(syncing.current||!navigator.onLine||!stateRef.current.snapshot.userId)return;syncing.current=true;setBusy(true);try{
+ async function startDemo(){sessionEpoch.current++;setBusy(true);try{setDemo(true);let s=await readSnapshot(DEMO_USER);if(!s){s=demoSnapshot();const d=await deviceId();s.cash=s.cash.map(c=>({...c,device_id:d}));await mergeRemote(s);}await hydrate(s);}finally{setBusy(false);}}
+ async function sync(){if(syncing.current||!navigator.onLine||!stateRef.current.snapshot.userId)return;const epoch=sessionEpoch.current;syncing.current=true;setBusy(true);try{
   const {snapshot:s,demo:isDemo}=stateRef.current;
-  for(const b of s.branches){const scope={userId:s.userId,tenantId:b.tenant_id,branchId:b.id};if(isDemo)await flushQueue(scope,async op=>({state:'applied',order:{...op.order,version:op.baseVersion+1}}));else await synchronize(scope);}
+  for(const b of s.branches){if(epoch!==sessionEpoch.current)return;const scope={userId:s.userId,tenantId:b.tenant_id,branchId:b.id};if(isDemo)await flushQueue(scope,async op=>({state:'applied',order:{...op.order,version:op.baseVersion+1}}));else await synchronize(scope);}
+  if(epoch!==sessionEpoch.current)return;
   if(isDemo){const orders=await localOrders(s.userId,s.branches);const next={...s,orders};await local.meta.put({key:`snapshot:${s.userId}`,value:next});setSnapshot(next);await loadOperations(next);}else await refresh();setLastSync(Date.now());
- }catch(e){setNotice(e instanceof Error?e.message:'Sin conexión al servidor. Los cambios están guardados localmente.');await loadOperations();}finally{syncing.current=false;setBusy(false);}}
+ }catch(e){if(epoch===sessionEpoch.current){setNotice(e instanceof Error?e.message:'Sin conexión al servidor. Los cambios están guardados localmente.');await loadOperations();}}finally{syncing.current=false;setBusy(false);}}
  useEffect(()=>{if(!snapshot.userId)return;void sync();const timer=setInterval(()=>void sync(),30000);const visible=()=>{if(document.visibilityState==='visible')void sync();};document.addEventListener('visibilitychange',visible);return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',visible);};},[online,snapshot.userId]);
  const branch=snapshot.branches.find(b=>b.id===branchId);
  const tenant=snapshot.tenants.find(t=>t.id===branch?.tenant_id);
@@ -33,10 +41,11 @@ export function useWorkspace(){
  const manager=membership?.role==='owner'||membership?.role==='manager';
  const scope:Scope={userId:snapshot.userId,tenantId:branch?.tenant_id??'',branchId};
  const cash=snapshot.cash.find(c=>c.branch_id===branchId&&c.user_id===snapshot.userId&&c.device_id===device&&!c.closed_at);
- async function saveOrder(order:Order){const previous=snapshot.orders.find(o=>o.id===order.id);const next=await saveLocalOrder(scope,order,snapshot.validatedAt);setSnapshot(s=>({...s,orders:[next,...s.orders.filter(o=>o.id!==next.id)],catalog:!demo?s.catalog:s.catalog.map(c=>{if(c.kind!=='product')return c;const before=previous&&!previous.cancelled?previous.lines.filter(l=>l.catalog_id===c.id).reduce((n,l)=>n+l.quantity,0):0;const after=!next.cancelled?next.lines.filter(l=>l.catalog_id===c.id).reduce((n,l)=>n+l.quantity,0):0;return {...c,stock:Number(c.stock)+before-after};})}));await loadOperations();setNotice('Orden guardada en este dispositivo.');setTimeout(()=>void sync(),0);return next;}
+ async function saveOrder(order:Order){const epoch=sessionEpoch.current;const previous=snapshot.orders.find(o=>o.id===order.id);const next=await saveLocalOrder(scope,order,snapshot.validatedAt);if(epoch!==sessionEpoch.current)return next;setSnapshot(s=>({...s,orders:[next,...s.orders.filter(o=>o.id!==next.id)],catalog:!demo?s.catalog:s.catalog.map(c=>{if(c.kind!=='product')return c;const before=previous&&!previous.cancelled?previous.lines.filter(l=>l.catalog_id===c.id).reduce((n,l)=>n+l.quantity,0):0;const after=!next.cancelled?next.lines.filter(l=>l.catalog_id===c.id).reduce((n,l)=>n+l.quantity,0):0;return {...c,stock:Number(c.stock)+before-after};})}));await loadOperations();setNotice('Orden guardada en este dispositivo.');setTimeout(()=>void sync(),0);return next;}
  async function action(action:string,data:Record<string,unknown>,targetBranch=branchId){
+  const epoch=sessionEpoch.current;
   if(!navigator.onLine)throw new Error('Esta acción requiere conexión a internet.');if(!branch)throw new Error('Selecciona una sede');
-  if(!demo){const result=await manage(action,branch.tenant_id,targetBranch,data);await refresh();return result;}
+  if(!demo){const result=await manage(action,branch.tenant_id,targetBranch,data);if(epoch===sessionEpoch.current)await refresh();return result;}
   const id=String(data.id??crypto.randomUUID());const base={...data,id,tenant_id:branch.tenant_id,branch_id:targetBranch};let s={...snapshot};
   if(action==='worker.save')s={...s,workers:[base as unknown as Snapshot['workers'][number],...s.workers.filter(w=>w.id!==id)]};
   if(action==='catalog.save'){const old=s.catalog.find(c=>c.id===id);s={...s,catalog:[{...base,stock:old?.stock??0} as unknown as Snapshot['catalog'][number],...s.catalog.filter(c=>c.id!==id)]};}
@@ -48,6 +57,6 @@ export function useWorkspace(){
   if(action.startsWith('receipt.'))throw new Error('Los enlaces de WhatsApp requieren Supabase. Puedes descargar el PDF de demostración.');
   await local.meta.put({key:`snapshot:${s.userId}`,value:s});setSnapshot(s);return {id};
  }
- async function logout(){if(!demo&&configured())await supabase().auth.signOut({scope:'local'});await local.meta.delete('last-authenticated-user');setSnapshot(emptySnapshot());setDemo(false);setOperations([]);setBranchId('');setNotice('Los pendientes siguen conservados para esta cuenta en el dispositivo.');}
+ async function logout(){sessionEpoch.current++;if(!demo&&configured())await supabase().auth.signOut({scope:'local'});await local.meta.delete('last-authenticated-user');setSnapshot(emptySnapshot());setDemo(false);setOperations([]);setBranchId('');setNotice('Los pendientes siguen conservados para esta cuenta en el dispositivo.');}
  return {snapshot,ready,demo,device,branchId,setBranchId,branch,tenant,membership,manager,scope,cash,online,busy,notice,setNotice,operations,lastSync,load,startDemo,sync,saveOrder,action,logout,refresh,loadOperations,hydrate};
 }

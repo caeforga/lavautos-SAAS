@@ -11,11 +11,13 @@ Ejecutar desde la raíz; consultar scripts/configuración si cambian.
 | `pnpm exec vitest run tests/offline.test.ts` | Cola y persistencia local |
 | `pnpm exec vitest run tests/database.test.ts` | Migraciones y reglas remotas simuladas |
 | `pnpm build` | Build Next y generación de `public/sw-assets.js` |
-| `pnpm test:e2e` | Playwright sobre build de producción, Chrome escritorio y móvil |
+| `pnpm test:e2e` | Playwright sobre build de producción, Chrome escritorio/móvil y WebKit iPhone |
 
 Playwright arranca `next start`, no construye: ejecutar `pnpm build` antes.
 Requiere Chrome disponible; para instalarlo usar
 `pnpm exec playwright install chrome` (en CI Linux se usa `--with-deps`).
+WebKit se instala con `PLAYWRIGHT_BROWSERS_PATH=.cache/playwright pnpm exec playwright install webkit` (en PowerShell configurar la variable con `$env:`). La recarga con `setOffline(true)` se omite explícitamente en WebKit por [Playwright #42775](https://github.com/microsoft/playwright/issues/42775); la captura offline y sincronización al reconectar sí se prueban. Esto no sustituye probar Safari en un iPhone físico.
+
 El puerto 3000 puede reutilizar un servidor fuera de CI: confirmar que sirve
 el build correcto antes de atribuir resultados. No detener procesos ajenos.
 No existe script lint ni formateador configurado; no reportarlos como ejecutados.

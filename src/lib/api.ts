@@ -18,6 +18,8 @@ export async function fetchSnapshot(): Promise<Snapshot> {
     readAll('tenants'), readAll('memberships'), readAll('branches'), readAll('workers'), readAll('catalog'), readAll('orders'), readAll('cash_sessions'), readAll('expenses'), readAll('inventory_movements'), readAll('sync_operations'), supabase().rpc('is_platform_admin'),
   ]);
   if (admin.error) throw admin.error;
+  const {data:{session}}=await supabase().auth.getSession();
+  if(session?.user.id!==user.id)throw new Error('La cuenta cambió durante la actualización. Vuelve a cargar tu espacio.');
   const conflicts: Operation[] = operations.filter(o => o.state === 'conflict' || o.state === 'rejected').map(o => ({ id: String(o.id), scope: scopeKey({ userId: user.id, tenantId: String(o.tenant_id), branchId: String(o.branch_id) }), orderId: String(o.order_id), baseVersion: Number((o.request as Order).version), order: o.request as Order, state: o.state as 'conflict' | 'rejected', createdAt: String(o.created_at), error: String((o.result as {message?:string}).message ?? 'Requiere revisión'), serverOrder: (o.result as {order?:Order}).order }));
   const snapshot = { tenants, memberships, branches, workers, catalog, orders: orders.map(o => o.document as Order), cash, expenses, movements, conflicts, resolvedOperationIds: operations.filter(o=>o.state==='resolved').map(o=>String(o.id)), validatedAt: Date.now(), userId: user.id, platformAdmin: Boolean(admin.data) } as Snapshot;
   await mergeRemote(snapshot); return snapshot;
@@ -25,6 +27,8 @@ export async function fetchSnapshot(): Promise<Snapshot> {
 export async function synchronize(scope: Scope) {
   const device = await deviceId();
   await flushQueue(scope, async op => {
+    const {data:{session}}=await supabase().auth.getSession();
+    if(session?.user.id!==scope.userId)throw new Error('La cuenta cambió; se conservaron las operaciones pendientes.');
     const { data, error } = await supabase().rpc('sync_order', { operation_id: op.id, base_version: op.baseVersion, payload: op.order, sender_device: device });
     if (error) {
       if (error.code === 'P0001' || error.code?.startsWith('22') || error.code?.startsWith('23')) return { state: 'rejected', message: error.message };
