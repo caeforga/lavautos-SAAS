@@ -50,8 +50,15 @@ consultar documentación oficial correspondiente a la versión del lockfile.
 
 ## UI, CSS y recibos
 
-Reutilizar `src/components/ui.tsx` y estilos de `src/app/globals.css`; el proyecto
-usa CSS propio, no Tailwind. Extender los patrones existentes antes de sumar un kit.
+Reutilizar `src/components/ui.tsx` y estilos de `src/app/globals.css`. El proyecto
+usa Tailwind CSS 4 y DaisyUI 5 con el tema `brillo` en `globals.css`, procesado
+por `postcss.config.mjs`. Las clases DaisyUI llevan el prefijo `d-` para
+evitar colisiones con las clases históricas como `modal`, `badge` y `input`.
+Adoptar los componentes de forma gradual y conservar CSS propio para las
+pantallas y recibos específicos del negocio.
+Para campos de fecha, reutilizar `DatePicker` de `src/components/ui.tsx`: usa
+React DayPicker con el estilo de calendario DaisyUI y entrega fechas ISO
+`YYYY-MM-DD` en la zona operativa de Bogotá.
 Mantener textos en español, formato COP y vocabulario consistente de sede/caja/orden.
 Usar elementos semánticos, labels, nombres accesibles para iconos, foco visible,
 navegación por teclado y estados de carga/error/vacío/offline perceptibles sin color.

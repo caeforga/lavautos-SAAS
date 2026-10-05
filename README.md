@@ -2,6 +2,10 @@
 
 Web instalable construida con Next.js 16, React, TypeScript y Supabase. Incluye administración por cliente y sede, órdenes, reparto de productividad, caja, inventario, gastos, reportes, boletas y una cola local para trabajar sin conexión.
 
+La interfaz combina componentes propios con Tailwind CSS 4 y DaisyUI 5. El tema
+`brillo` conserva la paleta de la aplicación; las clases de DaisyUI usan el
+prefijo `d-` para convivir con los estilos existentes.
+
 ## Ejecutar
 
 Requisitos: Node.js 22 o superior y pnpm 11.19.0.
@@ -61,6 +65,7 @@ Las migraciones crean tablas, RPC, políticas RLS y el bucket privado `business-
 - Ventas por fecha de creación; cobros por fecha del pago; gastos por fecha de registro. Zona horaria de Colombia. Filtros de trabajador/servicio seleccionan órdenes completas. El reporte no representa contabilidad formal ni utilidad.
 - Productividad de servicios terminados no anulados, con cantidad y valor ponderados. Exportaciones CSV protegidas contra fórmulas.
 - Boletas de 58/80 mm, PDF local, enlace revocable y compartir manualmente por WhatsApp. La vista pública excluye teléfono personal e identificadores internos.
+- Panel de plataforma con ingresos cobrados por suscripción, clientes, sedes, cuentas de acceso, crecimiento mensual y vencimientos próximos. Los cobros de planes se registran manualmente con fecha y referencia; no procesa pagos en línea.
 - Alta y suscripciones manuales. La fecha de suscripción es informativa; el estado activo/suspendido controla el acceso.
 
 ## Operación sin internet

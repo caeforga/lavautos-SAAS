@@ -1,5 +1,5 @@
 import { test,expect } from '@playwright/test';
-test.beforeEach(async({page})=>{await page.goto('/');await page.getByRole('button',{name:'Explorar demostración'}).click();await expect(page.getByRole('heading',{name:'Todo en orden.'})).toBeVisible();});
+test.beforeEach(async({page})=>{await page.goto('/');await page.getByRole('button',{name:'Explorar demostración'}).click();await expect(page.getByRole('status',{name:'Preparando tu espacio de trabajo'})).toBeVisible();await expect(page.getByRole('heading',{name:'Todo en orden.'})).toBeVisible();});
 async function nav(page:any,name:string){const toggle=page.getByRole('button',{name:'Abrir menú'});if(await toggle.isVisible())await toggle.click();await page.getByRole('button',{name,exact:true}).click();}
 test('crea una orden, cobra pago dividido y descarga boleta',async({page})=>{
  await page.getByRole('button',{name:'Nueva orden',exact:true}).click();
@@ -36,4 +36,22 @@ test('administra equipo, inventario, sede y reportes sin desbordar la pantalla',
  await nav(page,'Servicios y productos');await page.getByRole('button',{name:'Movimiento',exact:true}).first().click();await page.getByLabel('Cantidad').fill('5');await page.getByLabel('Motivo del movimiento').fill('Entrada de prueba');await page.getByRole('button',{name:'Guardar',exact:true}).click();await expect(page.getByText('Entrada de prueba',{exact:true})).toBeVisible();
  await nav(page,'Reportes');const download=page.waitForEvent('download');await page.getByRole('button',{name:'Exportar órdenes CSV'}).click();expect((await download).suggestedFilename()).toContain('reporte-');
  await nav(page,'Vista general');await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.screenshot({path:`test-results/dashboard-${testInfo.project.name}.png`,fullPage:true});
+});
+test('filtra reportes con el calendario DaisyUI y permite cerrarlo con Escape',async({page})=>{
+ await nav(page,'Reportes');
+ const from=page.getByRole('button',{name:'Desde'});
+ const before=await from.innerText();
+ await from.click();
+ const calendar=page.getByRole('dialog',{name:'Calendario de Desde'});
+ await expect(calendar).toHaveClass(/d-react-day-picker/);
+ await calendar.getByRole('button',{name:'Ir al mes siguiente'}).click();
+ await calendar.locator('.rdp-day_button').filter({hasText:/^1$/}).first().click();
+ await expect(calendar).toHaveCount(0);
+ await expect(from).not.toHaveText(before);
+ await page.getByRole('button',{name:'Hasta'}).click();
+ const until=page.getByRole('dialog',{name:'Calendario de Hasta'});
+ await expect(until).toBeVisible();
+ await page.keyboard.press('Escape');
+ await expect(until).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Hasta'})).toBeVisible();
 });

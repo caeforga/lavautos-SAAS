@@ -5,6 +5,7 @@ import { demoSnapshot } from '../src/lib/demo';
 let db:PGlite;const s=demoSnapshot(), owner=s.userId,t=s.tenants[0].id,b=s.branches[0].id;
 const otherUser='00000000-0000-4000-8000-000000000900',otherTenant='00000000-0000-4000-8000-000000000901',otherBranch='00000000-0000-4000-8000-000000000902';
 const cashier='00000000-0000-4000-8000-000000000903';
+const platformUser='00000000-0000-4000-8000-000000000904';
 async function asUser(id:string){await db.exec(`reset role; select set_config('request.jwt.claim.sub','${id}',false); set role authenticated;`);}
 async function sync(o:unknown,base=0,op=crypto.randomUUID()){return (await db.query<{result:any}>('select public.sync_order($1,$2,$3::jsonb) as result',[op,base,JSON.stringify(o)])).rows[0].result;}
 beforeAll(async()=>{
@@ -16,12 +17,15 @@ beforeAll(async()=>{
  grant usage on schema public,auth,storage to authenticated,anon,service_role; grant execute on function auth.uid() to authenticated,anon,service_role;`);
  await db.exec(readFileSync('supabase/migrations/202609280001_initial.sql','utf8'));
  await db.exec(readFileSync('supabase/migrations/202609280002_conflict_resolution.sql','utf8'));
+ await db.exec(readFileSync('supabase/migrations/202610040001_platform_metrics.sql','utf8'));
  await db.query('insert into auth.users(id) values($1),($2)',[owner,otherUser]);
  await db.query('insert into auth.users(id) values($1)',[cashier]);
+ await db.query('insert into auth.users(id) values($1)',[platformUser]);
  await db.query('insert into public.tenants(id,name) values($1,$2),($3,$4)',[t,'Cliente A',otherTenant,'Cliente B']);
  await db.query('insert into public.branches(id,tenant_id,name,code) values($1,$2,$3,$4),($5,$6,$7,$8)',[b,t,'Sede A','AAA',otherBranch,otherTenant,'Sede B','BBB']);
  await db.query('insert into public.memberships(tenant_id,user_id,role) values($1,$2,$3),($4,$5,$6)',[t,owner,'owner',otherTenant,otherUser,'owner']);
  await db.query('insert into public.memberships(tenant_id,user_id,branch_id,role) values($1,$2,$3,$4)',[t,cashier,b,'cashier']);
+ await db.query('insert into public.platform_admins(user_id) values($1)',[platformUser]);
  await db.exec('grant select,insert on storage.objects to authenticated');
  await db.query('insert into storage.objects(id,name,bucket_id) values($1,$2,$3),($4,$5,$6)',[crypto.randomUUID(),`${t}/${b}/logo.png`,'business-assets',crypto.randomUUID(),`${otherTenant}/${otherBranch}/logo.png`,'business-assets']);
  for(const worker of s.workers)await db.query('insert into public.workers(id,tenant_id,branch_id,name) values($1,$2,$3,$4)',[worker.id,t,b,worker.name]);
@@ -34,6 +38,16 @@ describe.sequential('seguridad y transacciones PostgreSQL',()=>{
  it('RLS permite ver solo el cliente y sede autorizados',async()=>{await asUser(owner);expect((await db.query('select * from public.branches')).rows).toHaveLength(1);expect((await db.query('select * from public.tenants')).rows).toHaveLength(1);await asUser(otherUser);expect((await db.query('select * from public.catalog')).rows).toHaveLength(0);await asUser(owner);});
  it('no permite escrituras directas ni RPC sobre otro cliente',async()=>{await expect(db.query('update public.catalog set price=0')).rejects.toThrow();await expect(sync({...s.orders[0],id:crypto.randomUUID(),tenant_id:otherTenant,branch_id:otherBranch})).rejects.toThrow('Sin acceso');});
  it('protege archivos privados y restringe cambios administrativos del cajero',async()=>{await asUser(cashier);expect((await db.query('select * from storage.objects')).rows).toHaveLength(1);await expect(db.query('insert into storage.objects(id,name,bucket_id) values($1,$2,$3)',[crypto.randomUUID(),`${t}/${b}/otro.png`,'business-assets'])).rejects.toThrow();await expect(db.query('select public.manage_record($1,$2,$3,$4::jsonb)',['worker.save',t,b,JSON.stringify({name:'No autorizado'})])).rejects.toThrow('Requiere administrador');await asUser(owner);});
+ it('registra cobros de suscripción y expone métricas solo a la plataforma',async()=>{
+  await asUser(platformUser);
+  await expect(db.query('select public.update_platform_subscription($1,$2,$3,$4,$5,$6,$7)',[t,'active',null,99000,null,'Octubre',platformUser])).rejects.toThrow();
+  await db.exec('reset role; set role service_role;');
+  await db.query('select public.update_platform_subscription($1,$2,$3,$4,$5,$6,$7)',[t,'active',null,99000,null,'Octubre',platformUser]);
+  const metrics=(await db.query<{metrics:any}>('select public.platform_dashboard_metrics() as metrics')).rows[0].metrics;
+  expect(Number(metrics.total_clients)).toBe(2);expect(Number(metrics.active_clients)).toBe(2);expect(Number(metrics.collected_this_month)).toBe(99000);expect(metrics.recent_payments[0].reference).toBe('Octubre');
+  await asUser(otherUser);expect((await db.query('select * from public.subscription_payments')).rows).toHaveLength(0);
+  await asUser(platformUser);expect((await db.query('select * from public.subscription_payments')).rows).toHaveLength(1);await asUser(owner);
+ });
  it('crea orden con pago y reintenta sin duplicar',async()=>{const o={...s.orders[0],id:crypto.randomUUID(),folio:'TEST-ONE',version:0};const op=crypto.randomUUID();const a=await sync(o,0,op),b=await sync(o,0,op);expect(a.state).toBe('applied');expect(b).toEqual(a);expect((await db.query('select * from public.orders')).rows).toHaveLength(1);});
  it('registra conflictos y conserva la versión válida',async()=>{const o={...s.orders[1],id:crypto.randomUUID(),folio:'TEST-CONFLICT',version:0};await sync(o);const result=await sync({...o,notes:'otro dispositivo'},0);expect(result.state).toBe('conflict');expect(result.order.notes).toBe('');});
  it('permite al administrador conciliar una propuesta y audita la decisión',async()=>{const o={...s.orders[4],id:crypto.randomUUID(),folio:'RESOLVE',version:0};await sync(o);const op=crypto.randomUUID();await sync({...o,notes:'propuesta revisada'},0,op);const result=(await db.query<{result:any}>('select public.resolve_conflict($1,$2,$3,$4) as result',[op,'local','Validado con el operador',crypto.randomUUID()])).rows[0].result;expect(result.state).toBe('applied');expect(result.order.notes).toBe('propuesta revisada');expect(result.order.version).toBe(2);});
