@@ -5,6 +5,8 @@ export type Membership = { id: string; tenant_id: string; user_id: string; branc
 export type Tenant = { id: string; name: string; subscription_status: 'active' | 'suspended'; subscription_until: string | null };
 export type Branch = { id: string; tenant_id: string; name: string; code: string; nit: string; address: string; phone: string; footer: string; logo: string; active: boolean };
 export type Worker = { id: string; tenant_id: string; branch_id: string; name: string; active: boolean };
+export type BusinessCustomer = { id: string; tenant_id: string; name: string; phone: string; notes: string; created_at: string; updated_at: string };
+export type CustomerVehicle = { id: string; tenant_id: string; customer_id: string | null; plate: string; plate_key: string; vehicle_type: string; created_at: string; updated_at: string };
 export type CatalogItem = { id: string; tenant_id: string; branch_id: string; name: string; kind: 'service' | 'product'; vehicle_type: string; price: number; stock: number; minimum_stock: number; active: boolean };
 export type CashSession = { id: string; tenant_id: string; branch_id: string; user_id: string; device_id: string; opening: number; opened_at: string; closed_at: string | null; counted: number | null; expected: number | null };
 export type Expense = { id: string; tenant_id: string; branch_id: string; cash_session_id: string | null; amount: number; category: string; description: string; method: string; created_at: string };
@@ -23,6 +25,7 @@ export const orderSchema = z.object({
   id: z.uuid(), tenant_id: z.uuid(), branch_id: z.uuid(), device_id: z.uuid(), folio: z.string().min(1).max(100),
   plate: z.string().trim().min(3).max(12), vehicle_type: z.string().min(1).max(40),
   customer_name: z.string().max(120), customer_phone: z.string().max(25), notes: z.string().max(2000),
+  customer_id: z.uuid().nullable().optional(),
   lines: z.array(lineSchema).min(1).max(100), payments: z.array(z.object({ method: z.enum(['cash', 'transfer', 'card']), amount: amount.refine(n => n > 0) })).max(3),
   cash_session_id: z.uuid().nullable(), paid_at: z.iso.datetime().nullable(), cancelled: z.boolean(), reason: z.string().max(1000),
   created_at: z.iso.datetime(), version: z.number().int().min(0),
@@ -40,8 +43,9 @@ export type ReceiptData = Pick<Order,'ticket'|'folio'|'plate'|'vehicle_type'|'cu
 export function receiptData(order:Order):ReceiptData { return {ticket:order.ticket,folio:order.folio,plate:order.plate,vehicle_type:order.vehicle_type,customer_name:order.customer_name,created_at:order.created_at,cancelled:order.cancelled,payments:order.payments,lines:order.lines.map(l=>({name:l.name,quantity:l.quantity,price:l.price,allocations:l.allocations.map(a=>({name:a.name,percent:a.percent}))}))}; }
 export type Scope = { userId: string; tenantId: string; branchId: string };
 export type Operation = { id: string; scope: string; orderId: string; baseVersion: number; order: Order; state: 'pending' | 'conflict' | 'rejected'; error?: string; createdAt: string; serverOrder?: Order };
-export type Snapshot = { tenants: Tenant[]; memberships: Membership[]; branches: Branch[]; workers: Worker[]; catalog: CatalogItem[]; orders: Order[]; cash: CashSession[]; expenses: Expense[]; movements: Movement[]; validatedAt: number; userId: string; platformAdmin: boolean; conflicts?: Operation[]; resolvedOperationIds?: string[] };
-export const emptySnapshot = (): Snapshot => ({ tenants: [], memberships: [], branches: [], workers: [], catalog: [], orders: [], cash: [], expenses: [], movements: [], validatedAt: 0, userId: '', platformAdmin: false });
+export type Snapshot = { tenants: Tenant[]; memberships: Membership[]; branches: Branch[]; workers: Worker[]; customers: BusinessCustomer[]; vehicles: CustomerVehicle[]; catalog: CatalogItem[]; orders: Order[]; cash: CashSession[]; expenses: Expense[]; movements: Movement[]; validatedAt: number; userId: string; platformAdmin: boolean; conflicts?: Operation[]; resolvedOperationIds?: string[] };
+export const emptySnapshot = (): Snapshot => ({ tenants: [], memberships: [], branches: [], workers: [], customers: [], vehicles: [], catalog: [], orders: [], cash: [], expenses: [], movements: [], validatedAt: 0, userId: '', platformAdmin: false });
+export const plateKey = (plate: string) => plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
 export const cents = (n: number) => Math.round(n * 100);
 export const total = (o: {lines:{price:number;quantity:number}[]}) => o.lines.reduce((s, l) => s + cents(l.price) * l.quantity, 0) / 100;
 export const cop = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 2 }).format(n);

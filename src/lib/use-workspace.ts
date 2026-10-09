@@ -4,13 +4,13 @@ import { type Snapshot,type Order,type Operation,type Scope,emptySnapshot,scopeK
 import { local,deviceId,mergeRemote,readSnapshot,localOrders,saveLocalOrder,flushQueue } from './local';
 import { demoSnapshot,DEMO_USER } from './demo';
 import { configured,supabase } from './supabase';
-import { fetchSnapshot,manage,synchronize } from './api';
+import { fetchSnapshot,manage,synchronize,saveBusinessCustomer } from './api';
 import { prepareOffline } from './prepare-offline';
 
 export function useWorkspace(){
  const [snapshot,setSnapshot]=useState<Snapshot>(emptySnapshot),[ready,setReady]=useState(false),[demo,setDemo]=useState(false),[device,setDevice]=useState(''),[branchId,setBranchId]=useState(''),[online,setOnline]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[operations,setOperations]=useState<Operation[]>([]),[lastSync,setLastSync]=useState(0);
  const syncing=useRef(false);const sessionEpoch=useRef(0);const stateRef=useRef({snapshot,demo,branchId});stateRef.current={snapshot,demo,branchId};
- async function hydrate(s:Snapshot){const epoch=sessionEpoch.current;const orders=await localOrders(s.userId,s.branches);if(epoch!==sessionEpoch.current)return;setSnapshot({...s,orders});setBranchId(current=>s.branches.some(b=>b.id===current)?current:s.branches[0]?.id??'');await loadOperations(s);}
+ async function hydrate(s:Snapshot){const epoch=sessionEpoch.current;const orders=await localOrders(s.userId,s.branches);if(epoch!==sessionEpoch.current)return;setSnapshot({...s,customers:s.customers??[],vehicles:s.vehicles??[],orders});setBranchId(current=>s.branches.some(b=>b.id===current)?current:s.branches[0]?.id??'');await loadOperations(s);}
  async function loadOperations(s=stateRef.current.snapshot){const epoch=sessionEpoch.current;const all=await local.operations.toArray();if(epoch!==sessionEpoch.current)return;const merged=new Map((s.conflicts??[]).map(o=>[o.id,o]));for(const o of all.filter(o=>o.scope.startsWith(`${s.userId}:`)))merged.set(o.id,o);setOperations([...merged.values()]);}
  async function refresh(){if(stateRef.current.demo)return;const epoch=sessionEpoch.current;const s=await fetchSnapshot();if(epoch!==sessionEpoch.current)return;await local.meta.put({key:'last-authenticated-user',value:s.userId});if(epoch!==sessionEpoch.current)return;await hydrate(s);setLastSync(Date.now());}
  async function currentSession(){
@@ -57,6 +57,15 @@ export function useWorkspace(){
   if(action.startsWith('receipt.'))throw new Error('Los enlaces de WhatsApp requieren Supabase. Puedes descargar el PDF de demostración.');
   await local.meta.put({key:`snapshot:${s.userId}`,value:s});setSnapshot(s);return {id};
  }
+ async function saveCustomer(data:{id?:string;name:string;phone:string;notes:string}){
+  if(!branch||!manager)throw new Error('Requiere administrador de sede');
+  if(!navigator.onLine)throw new Error('La edición de clientes requiere conexión a internet.');
+  if(!demo){const result=await saveBusinessCustomer(branch.tenant_id,branch.id,data);await refresh();return result;}
+  const id=data.id??crypto.randomUUID();
+  const previous=snapshot.customers.find(c=>c.id===id);
+  const next={...snapshot,customers:[{...data,id,tenant_id:branch.tenant_id,created_at:previous?.created_at??new Date().toISOString(),updated_at:new Date().toISOString()},...snapshot.customers.filter(c=>c.id!==id)]};
+  await local.meta.put({key:`snapshot:${next.userId}`,value:next});setSnapshot(next);return {id};
+ }
  async function logout(){sessionEpoch.current++;if(!demo&&configured())await supabase().auth.signOut({scope:'local'});await local.meta.delete('last-authenticated-user');setSnapshot(emptySnapshot());setDemo(false);setOperations([]);setBranchId('');setNotice('Los pendientes siguen conservados para esta cuenta en el dispositivo.');}
- return {snapshot,ready,demo,device,branchId,setBranchId,branch,tenant,membership,manager,scope,cash,online,busy,notice,setNotice,operations,lastSync,load,startDemo,sync,saveOrder,action,logout,refresh,loadOperations,hydrate};
+ return {snapshot,ready,demo,device,branchId,setBranchId,branch,tenant,membership,manager,scope,cash,online,busy,notice,setNotice,operations,lastSync,load,startDemo,sync,saveOrder,saveCustomer,action,logout,refresh,loadOperations,hydrate};
 }

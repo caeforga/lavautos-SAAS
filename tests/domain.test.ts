@@ -1,7 +1,17 @@
 import { describe,it,expect } from 'vitest';
 import { orderSchema,total,equalAllocations,productivity,canOperate,csv,day,financialSummary,receiptData } from '../src/lib/domain';
 import { demoSnapshot } from '../src/lib/demo';
+import { customerDirectory, customerVisits, findVehicle } from '../src/lib/customers';
 describe('reglas operativas',()=>{
+ it('reconoce la misma placa con distintos separadores y conserva visitas offline',()=>{
+  const s=demoSnapshot(), customer=s.customers[0];
+  const pending={...s.orders[0],id:crypto.randomUUID(),plate:'JPL-903',customer_id:customer.id,created_at:new Date(Date.now()+1000).toISOString()};
+  s.orders.push(pending);
+  const directory=customerDirectory(s,s.tenants[0].id);
+  expect(findVehicle(directory,'kxr482')?.customer?.id).toBe(customer.id);
+  expect(findVehicle(directory,'JPL 903')?.customer?.id).toBe(customer.id);
+  expect(customerVisits(customer.id,directory,s.orders).count).toBe(3);
+ });
  it('suma importes en centavos',()=>{const order=demoSnapshot().orders[0];order.lines=[{...order.lines[0],price:0.1,quantity:3}];expect(total(order)).toBe(0.3);});
  it('rechaza pagos parciales y porcentajes incompletos',()=>{const o=demoSnapshot().orders[0];o.payments=[{method:'cash',amount:1}];expect(orderSchema.safeParse(o).success).toBe(false);o.payments=[];o.lines[0].allocations[0].percent=90;expect(orderSchema.safeParse(o).success).toBe(false);});
  it('reparte exactamente cien por ciento entre tres trabajadores',()=>{expect(equalAllocations(demoSnapshot().workers).reduce((n,a)=>n+a.percent,0)).toBe(100);});

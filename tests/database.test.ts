@@ -18,6 +18,7 @@ beforeAll(async()=>{
  await db.exec(readFileSync('supabase/migrations/202609280001_initial.sql','utf8'));
  await db.exec(readFileSync('supabase/migrations/202609280002_conflict_resolution.sql','utf8'));
  await db.exec(readFileSync('supabase/migrations/202610040001_platform_metrics.sql','utf8'));
+ await db.exec(readFileSync('supabase/migrations/202610070001_business_customers.sql','utf8'));
  await db.query('insert into auth.users(id) values($1),($2)',[owner,otherUser]);
  await db.query('insert into auth.users(id) values($1)',[cashier]);
  await db.query('insert into auth.users(id) values($1)',[platformUser]);
@@ -35,6 +36,36 @@ beforeAll(async()=>{
 },60000);
 afterAll(async()=>{await db?.close();});
 describe.sequential('seguridad y transacciones PostgreSQL',()=>{
+ it('aísla clientes del negocio y vincula varias placas a una persona',async()=>{
+  const customer=crypto.randomUUID();
+  const first={...s.orders[4],id:crypto.randomUUID(),folio:'CUSTOMER-1',customer_id:customer,customer_name:'Laura',customer_phone:'3001234567'};
+  const second={...s.orders[5],id:crypto.randomUUID(),folio:'CUSTOMER-2',customer_id:customer,customer_name:'Laura',customer_phone:'3001234567'};
+  await sync(first);await sync(second);
+  expect((await db.query('select * from public.business_customers where id=$1',[customer])).rows).toHaveLength(1);
+  expect((await db.query('select * from public.customer_vehicles where customer_id=$1',[customer])).rows).toHaveLength(2);
+  await asUser(otherUser);
+  expect((await db.query('select * from public.business_customers')).rows).toHaveLength(0);
+  expect((await db.query('select * from public.customer_vehicles')).rows).toHaveLength(0);
+  await asUser(owner);
+ });
+ it('bloquea una placa ligada a otro cliente sin contabilizar la orden',async()=>{
+  const customer=crypto.randomUUID(),plate='MNO 777';
+  const first={...s.orders[4],id:crypto.randomUUID(),folio:'PLATE-1',plate,customer_id:customer,customer_name:'Laura'};
+  await sync(first);
+  const second={...s.orders[4],id:crypto.randomUUID(),folio:'PLATE-2',plate:'MNO-777',customer_id:crypto.randomUUID(),customer_name:'Otra'};
+  await expect(sync(second)).rejects.toThrow('placa pertenece');
+  expect((await db.query('select * from public.orders where id=$1',[second.id])).rows).toHaveLength(0);
+ });
+ it('permite editar perfil solo al administrador del negocio',async()=>{
+  const id=crypto.randomUUID();
+  await db.query('select public.save_business_customer($1,$2,$3::jsonb)',[t,b,JSON.stringify({id,name:'Camila',phone:'3009999999',notes:'Frecuente'})]);
+  await asUser(cashier);
+  expect((await db.query('select * from public.business_customers where id=$1',[id])).rows).toHaveLength(1);
+  await expect(db.query('select public.save_business_customer($1,$2,$3::jsonb)',[t,b,JSON.stringify({id,name:'Cambio'})])).rejects.toThrow('administrador');
+  await asUser(otherUser);
+  await expect(db.query('select public.save_business_customer($1,$2,$3::jsonb)',[t,b,JSON.stringify({id,name:'Intruso'})])).rejects.toThrow();
+  await asUser(owner);
+ });
  it('RLS permite ver solo el cliente y sede autorizados',async()=>{await asUser(owner);expect((await db.query('select * from public.branches')).rows).toHaveLength(1);expect((await db.query('select * from public.tenants')).rows).toHaveLength(1);await asUser(otherUser);expect((await db.query('select * from public.catalog')).rows).toHaveLength(0);await asUser(owner);});
  it('no permite escrituras directas ni RPC sobre otro cliente',async()=>{await expect(db.query('update public.catalog set price=0')).rejects.toThrow();await expect(sync({...s.orders[0],id:crypto.randomUUID(),tenant_id:otherTenant,branch_id:otherBranch})).rejects.toThrow('Sin acceso');});
  it('protege archivos privados y restringe cambios administrativos del cajero',async()=>{await asUser(cashier);expect((await db.query('select * from storage.objects')).rows).toHaveLength(1);await expect(db.query('insert into storage.objects(id,name,bucket_id) values($1,$2,$3)',[crypto.randomUUID(),`${t}/${b}/otro.png`,'business-assets'])).rejects.toThrow();await expect(db.query('select public.manage_record($1,$2,$3,$4::jsonb)',['worker.save',t,b,JSON.stringify({name:'No autorizado'})])).rejects.toThrow('Requiere administrador');await asUser(owner);});
@@ -48,7 +79,7 @@ describe.sequential('seguridad y transacciones PostgreSQL',()=>{
   await asUser(otherUser);expect((await db.query('select * from public.subscription_payments')).rows).toHaveLength(0);
   await asUser(platformUser);expect((await db.query('select * from public.subscription_payments')).rows).toHaveLength(1);await asUser(owner);
  });
- it('crea orden con pago y reintenta sin duplicar',async()=>{const o={...s.orders[0],id:crypto.randomUUID(),folio:'TEST-ONE',version:0};const op=crypto.randomUUID();const a=await sync(o,0,op),b=await sync(o,0,op);expect(a.state).toBe('applied');expect(b).toEqual(a);expect((await db.query('select * from public.orders')).rows).toHaveLength(1);});
+ it('crea orden con pago y reintenta sin duplicar',async()=>{const before=(await db.query('select * from public.orders')).rows.length;const o={...s.orders[0],id:crypto.randomUUID(),folio:'TEST-ONE',version:0};const op=crypto.randomUUID();const a=await sync(o,0,op),b=await sync(o,0,op);expect(a.state).toBe('applied');expect(b).toEqual(a);expect((await db.query('select * from public.orders')).rows).toHaveLength(before+1);});
  it('registra conflictos y conserva la versión válida',async()=>{const o={...s.orders[1],id:crypto.randomUUID(),folio:'TEST-CONFLICT',version:0};await sync(o);const result=await sync({...o,notes:'otro dispositivo'},0);expect(result.state).toBe('conflict');expect(result.order.notes).toBe('');});
  it('permite al administrador conciliar una propuesta y audita la decisión',async()=>{const o={...s.orders[4],id:crypto.randomUUID(),folio:'RESOLVE',version:0};await sync(o);const op=crypto.randomUUID();await sync({...o,notes:'propuesta revisada'},0,op);const result=(await db.query<{result:any}>('select public.resolve_conflict($1,$2,$3,$4) as result',[op,'local','Validado con el operador',crypto.randomUUID()])).rows[0].result;expect(result.state).toBe('applied');expect(result.order.notes).toBe('propuesta revisada');expect(result.order.version).toBe(2);});
  it('rechaza importes nulos incluso llamando directamente a la RPC',async()=>{const o={...s.orders[4],id:crypto.randomUUID(),folio:'NULL',lines:[{...s.orders[4].lines[0],price:null}]};await expect(sync(o)).rejects.toThrow('Línea incompleta');});

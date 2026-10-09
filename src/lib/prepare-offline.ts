@@ -6,7 +6,7 @@ export async function prepareOffline(){
  const assets=performance.getEntriesByType('resource').map(entry=>entry.name).filter(url=>new URL(url).pathname.startsWith('/_next/static/'));
  await new Promise<void>((resolve,reject)=>{
   const channel=new MessageChannel();const timeout=setTimeout(()=>{channel.port1.close();reject(new Error('No se terminó de preparar el modo sin conexión. Recarga mientras tengas internet.'));},20000);
-  channel.port1.onmessage=event=>{clearTimeout(timeout);channel.port1.close();if(event.data.ok)resolve();else reject(new Error('No se pudieron guardar los archivos para operar sin conexión.'));};
+  channel.port1.onmessage=event=>{clearTimeout(timeout);channel.port1.close();if(event.data.ok)resolve();else reject(new Error(`No se pudieron guardar los archivos para operar sin conexión: ${event.data.reason||'fallo desconocido'}.`));};
   registration.active?.postMessage({type:'PREPARE_OFFLINE',assets},[channel.port2]);
  });
  document.documentElement.dataset.offlineReady='true';

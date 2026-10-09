@@ -1,6 +1,38 @@
 import { test,expect } from '@playwright/test';
 test.beforeEach(async({page})=>{await page.goto('/');await page.getByRole('button',{name:'Explorar demostración'}).click();await expect(page.getByRole('status',{name:'Preparando tu espacio de trabajo'})).toBeVisible();await expect(page.getByRole('heading',{name:'Todo en orden.'})).toBeVisible();});
 async function nav(page:any,name:string){const toggle=page.getByRole('button',{name:'Abrir menú'});if(await toggle.isVisible())await toggle.click();await page.getByRole('button',{name,exact:true}).click();}
+test('cada opción conserva su ruta al navegar, volver y recargar',async({page})=>{
+ await nav(page,'Órdenes de servicio');
+ await expect(page).toHaveURL(/\/ordenes$/);
+ await expect(page.getByRole('heading',{name:'Órdenes de servicio'})).toBeVisible();
+ await nav(page,'Reportes');
+ await expect(page).toHaveURL(/\/reportes$/);
+ await page.goBack();
+ await expect(page).toHaveURL(/\/ordenes$/);
+ await expect(page.getByRole('heading',{name:'Órdenes de servicio'})).toBeVisible();
+ await page.reload();
+ await page.getByRole('button',{name:'Explorar demostración'}).click();
+ await expect(page.getByRole('heading',{name:'Órdenes de servicio'})).toBeVisible();
+});
+test('encuentra cliente por placa y muestra varios vehículos',async({page})=>{
+ await nav(page,'Mis clientes');
+ await expect(page).toHaveURL(/\/mis-clientes$/);
+ await expect(page.getByRole('heading',{name:'Laura Gómez'})).toBeVisible();
+ await nav(page,'Vista general');
+ await page.getByRole('button',{name:'Nueva orden',exact:true}).click();
+ await page.getByLabel('Placa del vehículo').fill('KXR-482');
+ await expect(page.getByLabel('Nombre del cliente · opcional')).toHaveValue('Laura Gómez');
+ await expect(page.getByLabel('WhatsApp · opcional')).toHaveValue('3001234567');
+ await page.getByRole('button',{name:'Cerrar'}).click();
+ await page.getByRole('button',{name:'Nueva orden',exact:true}).click();
+ await page.getByLabel('Placa del vehículo').fill('NEW 123');
+ await page.getByLabel('Cliente habitual').selectOption({label:'Laura Gómez · 3001234567'});
+ await page.getByLabel('Servicio o producto').selectOption({index:1});
+ await page.getByRole('button',{name:'Agregar',exact:true}).click();
+ await page.getByRole('button',{name:'Crear orden',exact:true}).click();
+ await nav(page,'Mis clientes');
+ await expect(page.getByText('NEW 123')).toBeVisible();
+});
 test('crea una orden, cobra pago dividido y descarga boleta',async({page})=>{
  await page.getByRole('button',{name:'Nueva orden',exact:true}).click();
  await page.getByLabel('Placa del vehículo').fill('TST 123');
@@ -28,7 +60,8 @@ test('recarga completamente sin internet y recupera la orden',async({page,contex
  test.skip(browserName==='webkit','Playwright #42775: la emulación offline WebKit rechaza navegación controlada por service worker. Validar en iPhone físico.');
  await page.waitForFunction(()=>document.documentElement.dataset.offlineReady==='true');await context.setOffline(true);
  await page.getByRole('button',{name:'Nueva orden',exact:true}).click();await page.getByLabel('Placa del vehículo').fill('OFF 789');await page.getByLabel('Servicio o producto').selectOption({index:1});await page.getByRole('button',{name:'Agregar',exact:true}).click();await page.getByRole('button',{name:'Crear orden',exact:true}).click();
- await page.reload();await page.getByRole('button',{name:'Explorar demostración'}).click();await nav(page,'Órdenes de servicio');await expect(page.getByRole('button',{name:'Ver orden OFF 789'})).toBeVisible();
+ await nav(page,'Órdenes de servicio');await expect(page).toHaveURL(/\/ordenes$/);
+ await page.reload();await page.getByRole('button',{name:'Explorar demostración'}).click();await expect(page.getByRole('button',{name:'Ver orden OFF 789'})).toBeVisible();
  await context.setOffline(false);await nav(page,'Sincronización');await expect(page.getByRole('heading',{name:'Todo al día en este dispositivo'})).toBeVisible();
 });
 test('administra equipo, inventario, sede y reportes sin desbordar la pantalla',async({page},testInfo)=>{

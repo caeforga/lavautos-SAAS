@@ -1,0 +1,71 @@
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import type { CatalogItem, Order, Worker } from '@/lib/domain';
+import type { useWorkspace } from '@/lib/use-workspace';
+import type { WorkspaceView } from '@/lib/workspace-routes';
+import type { FieldSpec } from '../ui';
+
+export type PlatformMetrics = {
+  total_clients: number;
+  active_clients: number;
+  suspended_clients: number;
+  total_branches: number;
+  active_branches: number;
+  user_accounts: number;
+  new_clients_this_month: number;
+  expiring_within_30_days: number;
+  expired_clients: number;
+  collected_this_month: number;
+  collected_last_month: number;
+  payments_this_month: number;
+  recent_payments: {
+    id: string;
+    tenant_id: string;
+    tenant_name: string;
+    amount: number;
+    paid_on: string;
+    period_until: string | null;
+    reference: string;
+  }[];
+};
+
+type WorkspaceState = ReturnType<typeof useWorkspace>;
+
+export type WorkspaceViewModel = {
+  w: WorkspaceState;
+  s: WorkspaceState['snapshot'];
+  branch: WorkspaceState['branch'];
+  branchId: string;
+  branchOrders: Order[];
+  today: Order[];
+  live: Order[];
+  sales: number;
+  collected: number;
+  workers: Worker[];
+  catalog: CatalogItem[];
+  pending: number;
+  filter: string;
+  setFilter: Dispatch<SetStateAction<string>>;
+  search: string;
+  setSearch: Dispatch<SetStateAction<string>>;
+  from: string;
+  setFrom: Dispatch<SetStateAction<string>>;
+  to: string;
+  setTo: Dispatch<SetStateAction<string>>;
+  reportBranch: string;
+  setReportBranch: Dispatch<SetStateAction<string>>;
+  reportWorker: string;
+  setReportWorker: Dispatch<SetStateAction<string>>;
+  reportService: string;
+  setReportService: Dispatch<SetStateAction<string>>;
+  reportMethod: string;
+  setReportMethod: Dispatch<SetStateAction<string>>;
+  reportOrders: Order[];
+  reportLive: Order[];
+  reportSales: number;
+  reportPaid: number;
+  expenseTotal: number;
+  orderTable: (orders: Order[], compact?: boolean) => ReactNode;
+  navigate: (view: WorkspaceView) => void;
+  form: (title: string, fields: FieldSpec[], save: (data: Record<string, string>) => Promise<void>) => void;
+  run: (action: () => Promise<unknown>) => Promise<void>;
+};

@@ -14,14 +14,14 @@ async function readAll(table: string) {
 export async function fetchSnapshot(): Promise<Snapshot> {
   const { data: { user }, error } = await supabase().auth.getUser();
   if (error || !user) throw new Error('Tu sesión venció. Ingresa de nuevo; tus pendientes siguen guardados.');
-  const [tenants, memberships, branches, workers, catalog, orders, cash, expenses, movements, operations, admin] = await Promise.all([
-    readAll('tenants'), readAll('memberships'), readAll('branches'), readAll('workers'), readAll('catalog'), readAll('orders'), readAll('cash_sessions'), readAll('expenses'), readAll('inventory_movements'), readAll('sync_operations'), supabase().rpc('is_platform_admin'),
+  const [tenants, memberships, branches, workers, customers, vehicles, catalog, orders, cash, expenses, movements, operations, admin] = await Promise.all([
+    readAll('tenants'), readAll('memberships'), readAll('branches'), readAll('workers'), readAll('business_customers'), readAll('customer_vehicles'), readAll('catalog'), readAll('orders'), readAll('cash_sessions'), readAll('expenses'), readAll('inventory_movements'), readAll('sync_operations'), supabase().rpc('is_platform_admin'),
   ]);
   if (admin.error) throw admin.error;
   const {data:{session}}=await supabase().auth.getSession();
   if(session?.user.id!==user.id)throw new Error('La cuenta cambió durante la actualización. Vuelve a cargar tu espacio.');
   const conflicts: Operation[] = operations.filter(o => o.state === 'conflict' || o.state === 'rejected').map(o => ({ id: String(o.id), scope: scopeKey({ userId: user.id, tenantId: String(o.tenant_id), branchId: String(o.branch_id) }), orderId: String(o.order_id), baseVersion: Number((o.request as Order).version), order: o.request as Order, state: o.state as 'conflict' | 'rejected', createdAt: String(o.created_at), error: String((o.result as {message?:string}).message ?? 'Requiere revisión'), serverOrder: (o.result as {order?:Order}).order }));
-  const snapshot = { tenants, memberships, branches, workers, catalog, orders: orders.map(o => o.document as Order), cash, expenses, movements, conflicts, resolvedOperationIds: operations.filter(o=>o.state==='resolved').map(o=>String(o.id)), validatedAt: Date.now(), userId: user.id, platformAdmin: Boolean(admin.data) } as Snapshot;
+  const snapshot = { tenants, memberships, branches, workers, customers, vehicles, catalog, orders: orders.map(o => o.document as Order), cash, expenses, movements, conflicts, resolvedOperationIds: operations.filter(o=>o.state==='resolved').map(o=>String(o.id)), validatedAt: Date.now(), userId: user.id, platformAdmin: Boolean(admin.data) } as Snapshot;
   await mergeRemote(snapshot); return snapshot;
 }
 export async function synchronize(scope: Scope) {
@@ -39,6 +39,11 @@ export async function synchronize(scope: Scope) {
 }
 export async function manage(action: string, tenant: string, branch: string | null, data: Record<string, unknown>) {
   const result = await supabase().rpc('manage_record', { action, tenant, branch, data });
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
+}
+export async function saveBusinessCustomer(tenant: string, branch: string, data: Record<string, unknown>) {
+  const result = await supabase().rpc('save_business_customer', { tenant, branch, data });
   if (result.error) throw new Error(result.error.message);
   return result.data;
 }
