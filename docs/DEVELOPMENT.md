@@ -54,8 +54,20 @@ Reutilizar `src/components/ui.tsx` y estilos de `src/app/globals.css`. El proyec
 usa Tailwind CSS 4 y DaisyUI 5 con el tema `brillo` en `globals.css`, procesado
 por `postcss.config.mjs`. Las clases DaisyUI llevan el prefijo `d-` para
 evitar colisiones con las clases históricas como `modal`, `badge` y `input`.
-Adoptar los componentes de forma gradual y conservar CSS propio para las
-pantallas y recibos específicos del negocio.
+En toda interfaz nueva o modificada, usar componentes DaisyUI como base con
+prefijo `d-` y tema `brillo`. CSS propio queda para disposición responsive,
+identidad visual o necesidades sin componente equivalente. No sustituir un
+control DaisyUI por un control nativo sin una razón concreta.
+La paleta global de Brillo es azul: `--color-primary: #0868a8`, fondo
+`--color-base-200: #f4f9fd`, texto `--color-base-content: #17324d` y acento
+`--color-accent: #a9e2f2`. Sus variaciones y roles (`--brand`, `--brand-soft`,
+`--ink`, `--muted`, `--line`, `--focus`) se definen en `src/app/globals.css`.
+Usar clases semánticas de DaisyUI o esos tokens CSS; no colocar colores hex,
+RGB ni nombres de color en JSX ni en estilos nuevos de pantalla. Los estados
+de éxito, advertencia y error usan `--status-*` exclusivamente para comunicar
+su significado, acompañados por texto o icono. Si cambia la marca, actualizar
+tema, `layout.tsx` (color del navegador), `manifest.ts` e iconos PWA juntos;
+los recibos impresos conservan tinta monocroma para legibilidad.
 Para campos de fecha, reutilizar `DatePicker` de `src/components/ui.tsx`: usa
 React DayPicker con el estilo de calendario DaisyUI y entrega fechas ISO
 `YYYY-MM-DD` en la zona operativa de Bogotá.

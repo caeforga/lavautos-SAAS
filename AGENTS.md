@@ -47,3 +47,11 @@ identificadores de código en inglés siguiendo los contratos existentes.
    `tsconfig.tsbuildinfo`, resultados de pruebas). Cambiar sus fuentes.
 10. Actualizar contexto cuando cambien contratos, comandos o arquitectura.
     Las mejoras propuestas en documentación no equivalen a funciones implementadas.
+11. En toda interfaz nueva o modificada usar componentes de DaisyUI como base,
+    con el prefijo `d-` y el tema `brillo`. Reservar CSS propio para disposición,
+    identidad visual o necesidades sin componente equivalente; verificar móvil.
+12. La identidad visual es azul y se define globalmente en el tema DaisyUI
+    `brillo` y los tokens semánticos de `src/app/globals.css`. Usar esos tokens
+    en toda pantalla nueva o modificada; no añadir colores literales en componentes
+    ni estilos de pantalla. Verde, ámbar y rojo quedan solo para estados semánticos.
+    Mantener alineados iconos PWA, manifest y color del navegador con el tema.

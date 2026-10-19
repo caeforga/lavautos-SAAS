@@ -1,12 +1,13 @@
 import { supabase } from './supabase';
 import { type Snapshot, type Order, type Scope, type Operation, scopeKey } from './domain';
 import { flushQueue, mergeRemote, deviceId } from './local';
+import { workspaceErrorMessage } from './workspace-errors';
 
 async function readAll(table: string) {
   const rows: Record<string, unknown>[] = [];
   for (let start = 0; ; start += 1000) {
     const { data, error } = await supabase().from(table).select('*').order('id').range(start, start + 999);
-    if (error) throw error;
+    if (error) throw new Error(workspaceErrorMessage(error, table));
     rows.push(...data);
     if (data.length < 1000) return rows;
   }

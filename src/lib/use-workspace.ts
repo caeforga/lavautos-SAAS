@@ -6,13 +6,16 @@ import { demoSnapshot,DEMO_USER } from './demo';
 import { configured,supabase } from './supabase';
 import { fetchSnapshot,manage,synchronize,saveBusinessCustomer } from './api';
 import { prepareOffline } from './prepare-offline';
+import { workspaceErrorMessage } from './workspace-errors';
 
 export function useWorkspace(){
  const [snapshot,setSnapshot]=useState<Snapshot>(emptySnapshot),[ready,setReady]=useState(false),[demo,setDemo]=useState(false),[device,setDevice]=useState(''),[branchId,setBranchId]=useState(''),[online,setOnline]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[operations,setOperations]=useState<Operation[]>([]),[lastSync,setLastSync]=useState(0);
- const syncing=useRef(false);const sessionEpoch=useRef(0);const stateRef=useRef({snapshot,demo,branchId});stateRef.current={snapshot,demo,branchId};
+ const syncing=useRef(false);const sessionEpoch=useRef(0);const lastRemoteError=useRef('');const stateRef=useRef({snapshot,demo,branchId});stateRef.current={snapshot,demo,branchId};
+ function showRemoteError(error:unknown){const message=workspaceErrorMessage(error);lastRemoteError.current=message;setNotice(message);}
+ function clearRemoteError(){const previous=lastRemoteError.current;if(previous){setNotice(current=>current===previous?'':current);lastRemoteError.current='';}}
  async function hydrate(s:Snapshot){const epoch=sessionEpoch.current;const orders=await localOrders(s.userId,s.branches);if(epoch!==sessionEpoch.current)return;setSnapshot({...s,customers:s.customers??[],vehicles:s.vehicles??[],orders});setBranchId(current=>s.branches.some(b=>b.id===current)?current:s.branches[0]?.id??'');await loadOperations(s);}
  async function loadOperations(s=stateRef.current.snapshot){const epoch=sessionEpoch.current;const all=await local.operations.toArray();if(epoch!==sessionEpoch.current)return;const merged=new Map((s.conflicts??[]).map(o=>[o.id,o]));for(const o of all.filter(o=>o.scope.startsWith(`${s.userId}:`)))merged.set(o.id,o);setOperations([...merged.values()]);}
- async function refresh(){if(stateRef.current.demo)return;const epoch=sessionEpoch.current;const s=await fetchSnapshot();if(epoch!==sessionEpoch.current)return;await local.meta.put({key:'last-authenticated-user',value:s.userId});if(epoch!==sessionEpoch.current)return;await hydrate(s);setLastSync(Date.now());}
+ async function refresh(){if(stateRef.current.demo)return;const epoch=sessionEpoch.current;const s=await fetchSnapshot();if(epoch!==sessionEpoch.current)return;await local.meta.put({key:'last-authenticated-user',value:s.userId});if(epoch!==sessionEpoch.current)return;await hydrate(s);clearRemoteError();setLastSync(Date.now());}
  async function currentSession(){
   const sessionRequest=supabase().auth.getSession();
   const timeout=new Promise<never>((_,reject)=>window.setTimeout(()=>reject(new Error('No fue posible conectar con Supabase. Revisa tu conexión e inténtalo de nuevo.')),8000));
@@ -25,7 +28,7 @@ export function useWorkspace(){
   if(!navigator.onLine){const last=await local.meta.get('last-authenticated-user');if(last){const cached=await readSnapshot(String(last.value));if(cached)await hydrate(cached);}return;}
   const session=await currentSession();
   if(session){const cached=await readSnapshot(session.user.id);if(cached)await hydrate(cached);if(navigator.onLine)await refresh();}
- }catch(e){setNotice(e instanceof Error?e.message:'No se pudo cargar el negocio');}finally{setBusy(false);setReady(true);}}
+ }catch(e){showRemoteError(e);}finally{setBusy(false);setReady(true);}}
  useEffect(()=>{void deviceId().then(setDevice);void load();setOnline(navigator.onLine);const change=()=>setOnline(navigator.onLine);window.addEventListener('online',change);window.addEventListener('offline',change);void prepareOffline().catch(e=>setNotice(e.message));return()=>{window.removeEventListener('online',change);window.removeEventListener('offline',change);};},[]);
  async function startDemo(){sessionEpoch.current++;setBusy(true);try{setDemo(true);let s=await readSnapshot(DEMO_USER);if(!s){s=demoSnapshot();const d=await deviceId();s.cash=s.cash.map(c=>({...c,device_id:d}));await mergeRemote(s);}await hydrate(s);}finally{setBusy(false);}}
  async function sync(){if(syncing.current||!navigator.onLine||!stateRef.current.snapshot.userId)return;const epoch=sessionEpoch.current;syncing.current=true;setBusy(true);try{
@@ -33,7 +36,7 @@ export function useWorkspace(){
   for(const b of s.branches){if(epoch!==sessionEpoch.current)return;const scope={userId:s.userId,tenantId:b.tenant_id,branchId:b.id};if(isDemo)await flushQueue(scope,async op=>({state:'applied',order:{...op.order,version:op.baseVersion+1}}));else await synchronize(scope);}
   if(epoch!==sessionEpoch.current)return;
   if(isDemo){const orders=await localOrders(s.userId,s.branches);const next={...s,orders};await local.meta.put({key:`snapshot:${s.userId}`,value:next});setSnapshot(next);await loadOperations(next);}else await refresh();setLastSync(Date.now());
- }catch(e){if(epoch===sessionEpoch.current){setNotice(e instanceof Error?e.message:'Sin conexión al servidor. Los cambios están guardados localmente.');await loadOperations();}}finally{syncing.current=false;setBusy(false);}}
+ }catch(e){if(epoch===sessionEpoch.current){showRemoteError(e);await loadOperations();}}finally{syncing.current=false;setBusy(false);}}
  useEffect(()=>{if(!snapshot.userId)return;void sync();const timer=setInterval(()=>void sync(),30000);const visible=()=>{if(document.visibilityState==='visible')void sync();};document.addEventListener('visibilitychange',visible);return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',visible);};},[online,snapshot.userId]);
  const branch=snapshot.branches.find(b=>b.id===branchId);
  const tenant=snapshot.tenants.find(t=>t.id===branch?.tenant_id);
